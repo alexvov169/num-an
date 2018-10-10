@@ -111,14 +111,21 @@ private:
 template<typename IntegerType,
          typename EvalNextFunctorType,
          typename NotEqualFunctorType>
-inline auto rrange(IntegerType a,
-                   IntegerType b,
-                   EvalNextFunctorType next,
-                   NotEqualFunctorType not_equal) {
-    return recursive_iterable<IntegerType, EvalNextFunctorType, NotEqualFunctorType>(a, b, next, not_equal);
+recursive_iterable<IntegerType, EvalNextFunctorType, NotEqualFunctorType>
+rrange(IntegerType a,
+		IntegerType b,
+		EvalNextFunctorType next,
+		NotEqualFunctorType not_equal) {
+	return recursive_iterable<IntegerType, EvalNextFunctorType, NotEqualFunctorType>(a, b, next, not_equal);
 }
 template<typename IntegerType>
-inline auto rrange(IntegerType a, IntegerType b, IntegerType h) {
+auto 
+rrange(IntegerType a, IntegerType b, IntegerType h)
+-> decltype (rrange(a, b,
+	std::bind(std::plus<IntegerType>(),
+		h,
+		std::placeholders::_1),
+	std::less<IntegerType>())) {
     return rrange(a, b,
                   std::bind(std::plus<IntegerType>(),
                             h,
@@ -127,18 +134,23 @@ inline auto rrange(IntegerType a, IntegerType b, IntegerType h) {
 }
 
 template<typename IntegerType, class RecursiveIterableType>
-inline auto irange(IntegerType a, IntegerType b, RecursiveIterableType iterable) {
+auto irange(IntegerType a, IntegerType b, RecursiveIterableType iterable)
+-> decltype (iterative_iterable<IntegerType, RecursiveIterableType>(a, b, iterable)) {
     return iterative_iterable<IntegerType, RecursiveIterableType>(a, b, iterable);
 }
 
-template<typename ValueType, typename IndexType>
-inline auto range(ValueType a, ValueType b, IndexType n) {
-    return irange(a, (b - a) / (n - 1), rrange(0, n, 1));
-}
+
 
 template<typename IndexType>
-inline auto range(IndexType n) {
+auto range(IndexType n)
+-> decltype (rrange(0, n, 1)) {
     return rrange(0, n, 1);
+}
+
+template<typename ValueType, typename IndexType>
+auto range(ValueType a, ValueType b, IndexType n) 
+-> decltype (irange(a, (b - a) / (n - 1), range(n))) {
+	return irange(a, (b - a) / (n - 1), range(n));
 }
 
 #endif // RANGES_H
