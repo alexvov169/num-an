@@ -1,58 +1,44 @@
 #ifndef RANGES_H
 #define RANGES_H
 
+#include <iostream>
 #include <functional>
 
-template<typename IndexType>
-class basic_range {
-public:
-    typedef IndexType index_type;
-    basic_range(index_type n) : n(n) {}
-    class iterator {
-    public:
-        iterator(index_type n = 0) : current(n) {}
-        inline bool operator!=(const iterator& other) const {
-            return this->current < other.current;
-        }
-        inline const index_type& operator*() const {
-            return current;
-        }
-        inline iterator& operator++() {
-            ++current;
-            return *this;
-        }
-    protected:
-        index_type current;
-    };
-    iterator begin() const {
-        return iterator(0);
-    }
-    iterator end() const {
-        return iterator(n);
-    }
-private:
-    index_type n;
-};
+/*
+ * Numeric iterable with following formula:
+ * i = foo(i)
+ * */
 
-template<typename ValueType, typename ModifierType>
+template<typename ValueType,
+         typename EvalNextFunctorType,
+         typename NotEqualFunctorType>
 class recursive_iterable {
 public:
     typedef ValueType value_type;
-    typedef ModifierType modifier_type;
+    typedef EvalNextFunctorType eval_next_functor_type;
+    typedef NotEqualFunctorType not_equal_functor_type;
 
     recursive_iterable(value_type a, value_type b,
-                       modifier_type modifier):
-        initial(a), final(b), modifier(modifier) {}
+                       eval_next_functor_type next, not_equal_functor_type not_equal):
+        initial(a), final(b),
+        next(next), not_equal(not_equal) {}
 
-    class iterator : public basic_range<value_type>::iterator {
-        typedef typename basic_range<value_type>::iterator base_type;
+    class iterator {
     public:
         iterator(const recursive_iterable *that, value_type initial):
-            base_type(initial), that(that) {}
+            current(initial), that(that) {}
         inline iterator& operator++() {
-            base_type::current = that->modifier(base_type::current);
+            current = that->next(current);
             return *this;
         }
+        inline bool operator!=(const iterator& other) const {
+            return that->not_equal(this->current, other.current);
+        }
+        inline const value_type& operator*() const {
+            return current;
+        }
+    protected:
+        value_type current;
     private:
         const recursive_iterable *that;
     };
@@ -65,29 +51,45 @@ public:
 private:
     value_type initial;
     value_type final;
-    modifier_type modifier;
+    eval_next_functor_type next;
+    not_equal_functor_type not_equal;
 };
 
+
+/*
+ * Numeric iterable with following formula:
+ * i = a + j * h
+ * where a -- initial constant
+ *       j -- passed iterable or if passed number of iterations
+ *            then basic_iterable is used
+ *       h -- passed step or if passed number of iterations and final value
+ *            then step = (final - initial) / (n - 1) is used
+ * */
 template<typename ValueType, class RecursiveIterableType>
 class iterative_iterable : public RecursiveIterableType {
     typedef RecursiveIterableType base_type;
 public:
     typedef ValueType value_type;
-    iterative_iterable(value_type a, value_type b, base_type iterable):
+    iterative_iterable(value_type a, value_type step,
+                       base_type iterable):
         base_type(iterable),
-        step((b - a) / (n - 1)), initial(a) {}
+        step(step),
+        initial(a) {}
+
     class iterator : public base_type::iterator {
         typedef typename base_type::iterator base_iterator_type;
     public:
         explicit iterator(const iterative_iterable *that, base_iterator_type base):
             base_iterator_type(base),
             that(that), current(that->initial) {}
+
         const value_type& operator*() const {
             return this->current;
         }
         iterator& operator++() {
-            base_type::operator++();
-            this->current = that->initial + that->step * base_type::operator*();
+            base_iterator_type::operator++();
+            this->current = that->initial +
+                    that->step * base_iterator_type::operator*();
             return *this;
         }
     protected:
@@ -106,20 +108,37 @@ private:
     friend class iterator;
 };
 
-template<typename IndexType>
-inline basic_range<IndexType> range(IndexType n) {
-    return basic_range<IndexType>(n);
+template<typename IntegerType,
+         typename EvalNextFunctorType,
+         typename NotEqualFunctorType>
+inline auto rrange(IntegerType a,
+                   IntegerType b,
+                   EvalNextFunctorType next,
+                   NotEqualFunctorType not_equal) {
+    return recursive_iterable<IntegerType, EvalNextFunctorType, NotEqualFunctorType>(a, b, next, not_equal);
 }
-
-template<typename IntegerType, typename ModifierType>
-inline recursive_iterable<IntegerType> rrange(IntegerType a, IntegerType b,
-                                              ModifierType modifier) {
-    return recursive_iterable<IntegerType, ModifierType>(a, b, modifier);
+template<typename IntegerType>
+inline auto rrange(IntegerType a, IntegerType b, IntegerType h) {
+    return rrange(a, b,
+                  std::bind(std::plus<IntegerType>(),
+                            h,
+                            std::placeholders::_1),
+                  std::less<IntegerType>());
 }
 
 template<typename IntegerType, class RecursiveIterableType>
-inline iterative_iterable<IntegerType> irange(IntegerType a, IntegerType b,
-                                              RecursiveIterableType iterable) {
+inline auto irange(IntegerType a, IntegerType b, RecursiveIterableType iterable) {
     return iterative_iterable<IntegerType, RecursiveIterableType>(a, b, iterable);
 }
+
+template<typename ValueType, typename IndexType>
+inline auto range(ValueType a, ValueType b, IndexType n) {
+    return irange(a, (b - a) / (n - 1), rrange(0, n, 1));
+}
+
+template<typename IndexType>
+inline auto range(IndexType n) {
+    return rrange(0, n, 1);
+}
+
 #endif // RANGES_H
