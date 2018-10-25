@@ -10,35 +10,39 @@
  * */
 
 template<typename ValueType,
+         typename NotEqualFunctorType,
          typename EvalNextFunctorType,
-         typename NotEqualFunctorType>
+         typename EvalPrevFunctorType>
 class recursive_iterable {
 public:
-    typedef ValueType value_type;
-    typedef EvalNextFunctorType eval_next_functor_type;
-    typedef NotEqualFunctorType not_equal_functor_type;
-
-    recursive_iterable(value_type a, value_type b,
-                       eval_next_functor_type next, not_equal_functor_type not_equal):
-        initial(a), final(b),
-        next(next), not_equal(not_equal) {}
+    recursive_iterable(ValueType initial, ValueType final,
+                       NotEqualFunctorType not_equal,
+                       EvalPrevFunctorType previous,
+                       EvalNextFunctorType next):
+        initial(initial), final(final),
+        not_equal(not_equal),
+        previous(previous), next(next) {}
 
     class iterator {
     public:
-        iterator(const recursive_iterable *that, value_type initial):
+        iterator(const recursive_iterable *that, ValueType initial):
             current(initial), that(that) {}
         inline iterator& operator++() {
             current = that->next(current);
             return *this;
         }
+        inline iterator& operator--() {
+            current = that->previous(current);
+            return *this;
+        }
         inline bool operator!=(const iterator& other) const {
             return that->not_equal(this->current, other.current);
         }
-        inline const value_type& operator*() const {
+        inline const ValueType& operator*() const {
             return current;
         }
     protected:
-        value_type current;
+        ValueType current;
     private:
         const recursive_iterable *that;
     };
@@ -49,12 +53,56 @@ public:
         return iterator(this, final);
     }
 private:
-    value_type initial;
-    value_type final;
-    eval_next_functor_type next;
-    not_equal_functor_type not_equal;
+    ValueType initial;
+    ValueType final;
+    NotEqualFunctorType not_equal;
+    EvalPrevFunctorType previous;
+    EvalNextFunctorType next;
 };
 
+template<typename ValueType,
+         typename NotEqualFunctorType,
+         typename EvalNextFunctorType>
+class recursive_iterable<ValueType, NotEqualFunctorType, EvalNextFunctorType, void> {
+public:
+    recursive_iterable(ValueType initial, ValueType final,
+                       NotEqualFunctorType not_equal,
+                       EvalNextFunctorType next):
+        initial(initial), final(final),
+        not_equal(not_equal),
+        next(next) {}
+
+    class iterator {
+    public:
+        iterator(const recursive_iterable *that, ValueType initial):
+            current(initial), that(that) {}
+        inline iterator& operator++() {
+            current = that->next(current);
+            return *this;
+        }
+        inline bool operator!=(const iterator& other) const {
+            return that->not_equal(this->current, other.current);
+        }
+        inline const ValueType& operator*() const {
+            return current;
+        }
+    protected:
+        ValueType current;
+    private:
+        const recursive_iterable *that;
+    };
+    iterator begin() const {
+        return iterator(this, initial);
+    }
+    iterator end() const {
+        return iterator(this, final);
+    }
+private:
+    ValueType initial;
+    ValueType final;
+    NotEqualFunctorType not_equal;
+    EvalNextFunctorType next;
+};
 
 /*
  * Numeric iterable with following formula:
@@ -109,28 +157,35 @@ private:
 };
 
 template<typename IntegerType,
-         typename EvalNextFunctorType,
-         typename NotEqualFunctorType>
-recursive_iterable<IntegerType, EvalNextFunctorType, NotEqualFunctorType>
+         typename NotEqualFunctorType,
+         typename EvalNextFunctorType>
+recursive_iterable<IntegerType, NotEqualFunctorType, EvalNextFunctorType, void>
 rrange(IntegerType a,
-		IntegerType b,
-		EvalNextFunctorType next,
-		NotEqualFunctorType not_equal) {
-	return recursive_iterable<IntegerType, EvalNextFunctorType, NotEqualFunctorType>(a, b, next, not_equal);
+       IntegerType b,
+       NotEqualFunctorType not_equal,
+       EvalNextFunctorType next) {
+    return { a, b, not_equal, next };
+}
+
+template<typename IntegerType,
+         typename NotEqualFunctorType,
+         typename EvalNextFunctorType,
+         typename EvalPrevFunctorType>
+recursive_iterable<IntegerType, NotEqualFunctorType, EvalNextFunctorType, EvalPrevFunctorType>
+rrange(IntegerType a,
+       IntegerType b,
+       NotEqualFunctorType not_equal,
+       EvalPrevFunctorType previous,
+       EvalNextFunctorType next) {
+    return { a, b, not_equal, previous, next };
 }
 template<typename IntegerType>
 auto 
 rrange(IntegerType a, IntegerType b, IntegerType h)
--> decltype (rrange(a, b,
-	std::bind(std::plus<IntegerType>(),
-		h,
-		std::placeholders::_1),
-	std::less<IntegerType>())) {
-    return rrange(a, b,
-                  std::bind(std::plus<IntegerType>(),
-                            h,
-                            std::placeholders::_1),
-                  std::less<IntegerType>());
+-> decltype (rrange(a, b, std::less<IntegerType>(),
+                    std::bind(std::plus<IntegerType>(), h, std::placeholders::_1))) {
+    return rrange(a, b, std::less<IntegerType>(),
+                  std::bind(std::plus<IntegerType>(), h, std::placeholders::_1));
 }
 
 template<typename IntegerType, class RecursiveIterableType>
@@ -138,8 +193,6 @@ auto irange(IntegerType a, IntegerType b, RecursiveIterableType iterable)
 -> decltype (iterative_iterable<IntegerType, RecursiveIterableType>(a, b, iterable)) {
     return iterative_iterable<IntegerType, RecursiveIterableType>(a, b, iterable);
 }
-
-
 
 template<typename IndexType>
 auto range(IndexType n)

@@ -5,8 +5,8 @@
  * f(x) = 0
  * f(x) = 15 * sqrt(1 + cos(x)) + 1.5 * x
  * 15sqrt(cos(x) + 1) + 1.5x = 0 <==> x = -10sqrt(cos(x) + 1)
- *                                      = -10sqrt(2 * sin^2(x/2))
- *                                      = -10sqrt(2) * abs(sin(x/2))
+ *                                      = -10sqrt(2 * cos^2(x/2))
+ *                                      = -10sqrt(2) * abs(cos(x/2))
  * f'(x) = 1.5 - 15 * sin(x) / (2 * sqrt(1 + cos(x)))
  *       = 1.5 - 15 * sin(x) / (2 * sqrt(2 * cos^2(x/2))
  *       = 1.5 - 15 * sin(x) / (2 * sqrt(2) * abs(cos(x/2)))
@@ -23,19 +23,24 @@
 
 #include <iostream>
 #include <tuple>
+#include <cmath>
 
 template<typename ValueType>
-class edges : protected std::pair<ValueType, ValueType> {
+class edges : public std::pair<ValueType, ValueType> {
 public:
     typedef ValueType value_type;
 
 private:
     typedef std::pair<value_type, value_type> base_type;
-    static constexpr value_type atan_1_div_7 = atan(1. / 7);
 
 public:
     edges() {}
     edges(value_type first, value_type second) : base_type(first, second) {}
+    edges& operator=(const edges& other) {
+		this->first = other.first;
+		this->second = other.second;
+		return *this;
+	}
 
     void set_left(const value_type& other_left) {
         base_type::first = other_left;
@@ -52,18 +57,16 @@ public:
     value_type middle() const {
         return 0.5 * (left() + right());
     }
-    edges& swap() {
-        //std::swap(base_type::first, base_type::second);
-        //base_type::first = -base_type::first;
-        //base_type::second = -base_type::second;
-        return *this;
-    }
 
     template<typename UnaryFunction>
     bool contain_root(UnaryFunction f) const {
         return f(left()) * f(right()) < 0;
     }
 
+
+    // Modifies edges so they don't include their old 'edges'.
+	// Needed for approximating methods which don't apply
+	// ranges with zero or NaN derivative
     template<typename PredicateType>
     edges& shrink(PredicateType is_appropriate) {
         value_type old_left = left();
@@ -72,14 +75,14 @@ public:
             value_type old_right = right();
             set_right(middle());
             while (!is_appropriate(*this)) {
-                std::cout << *this << std::endl;
+                //std::cout << *this << std::endl;
                 set_left(right());
                 set_right(old_right);
                 set_right(middle());
             }
         } else {
             while (!is_appropriate(*this)) {
-                std::cout << *this << std::endl;
+                //std::cout << *this << std::endl;
                 set_right(left());
                 set_left(old_left);
                 set_left(middle());
@@ -92,10 +95,12 @@ public:
     // in returned edges
     template<typename IntTy>
     static edges get_negative(IntTy n) {
+		const value_type atan_1_div_7 = std::atan(1. / 7);
         return { atan_1_div_7 * 2 + 2 * M_PI * n, -M_PI + 2 * M_PI * (n + 1) };
     }
     template<typename IntTy>
     static edges get_positive(IntTy n) {
+		const value_type atan_1_div_7 = std::atan(1. / 7);
         return { -M_PI + 2 * M_PI * n, atan_1_div_7 * 2 + 2 * M_PI * n };
     }
 
@@ -117,11 +122,11 @@ std::ostream& operator<<(std::ostream& stream, edges<ValTy> object) {
 // from endless search when f has no roots
 template<typename IntegerType,
          typename ValueType,
-         typename UnaryFunction,
-         typename ApproximatorType>
-void isolate_roots(UnaryFunction f, ApproximatorType approximator) {
+         class FunctorType>
+void for_each_root(FunctorType& function) {
     IntegerType n{};
     typedef edges<ValueType> edges_type;
+    const auto& f = function.get_f();
 
     // conditions below were intentionally left inefficient
     while (!edges_type::get_positive(n).contain_root(f) &&
@@ -138,12 +143,12 @@ void isolate_roots(UnaryFunction f, ApproximatorType approximator) {
         positive_edges = edges_type::get_positive(n),
         negative_edges = edges_type::get_negative(n);
         if (positive_edges.contain_root(f)) {
-            approximator(positive_edges);
+            function(positive_edges);
         } else {
             negative_direction_ended = true;
         }
         if (negative_edges.contain_root(f)) {
-            approximator(negative_edges.swap());
+            function(negative_edges);
         } else {
             positive_direction_ended = true;
         }
@@ -155,9 +160,9 @@ void isolate_roots(UnaryFunction f, ApproximatorType approximator) {
             positive_edges = edges_type::get_positive(n),
             negative_edges = edges_type::get_negative(n);
             if (positive_edges.contain_root(f)) {
-                approximator(positive_edges);
+                function(positive_edges);
                 if (negative_edges.contain_root(f)) {
-                    approximator(negative_edges.swap());
+                    function(negative_edges);
                 } else {
                     positive_direction_ended = true;
                 }
@@ -171,9 +176,9 @@ void isolate_roots(UnaryFunction f, ApproximatorType approximator) {
             positive_edges = edges_type::get_positive(-n),
             negative_edges = edges_type::get_negative(-n);
             if (negative_edges.contain_root(f)) {
-                approximator(negative_edges.swap());
+                function(negative_edges);
                 if (positive_edges.contain_root(f)) {
-                    approximator(positive_edges);
+                    function(positive_edges);
                 } else {
                     negative_direction_ended = true;
                 }
@@ -181,7 +186,7 @@ void isolate_roots(UnaryFunction f, ApproximatorType approximator) {
                 negative_direction_ended = true;
             }
         }
-        n++;
+        ++n;
     }
 }
 
